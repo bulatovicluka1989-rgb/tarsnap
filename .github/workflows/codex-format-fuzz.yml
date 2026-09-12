@@ -1,0 +1,82 @@
+name: Codex targeted format fuzz
+
+on:
+  workflow_dispatch:
+
+jobs:
+  fuzz-format:
+    strategy:
+      fail-fast: false
+      max-parallel: 5
+      matrix:
+        format: [AR, ISO9660, MTREE, TAR, ZIP]
+    runs-on: ubuntu-latest
+    timeout-minutes: 23
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y autoconf automake clang cpio genisoimage libbz2-dev libext2fs-dev liblzma-dev libssl-dev zlib1g-dev
+
+      - name: Build instrumented reader for ${{ matrix.format }}
+        run: |
+          autoreconf -fi
+          CC=clang CFLAGS='-O1 -g -fno-omit-frame-pointer -fsanitize=fuzzer-no-link,address,undefined' ./configure
+          make -j2 libarchive/libarchive.a
+          clang -O1 -g -fno-omit-frame-pointer \
+            -fsanitize=fuzzer,address,undefined \
+            -DFUZZ_FORMAT_${{ matrix.format }} \
+            -I. -Ilibarchive fuzz-native/archive_fuzzer.c \
+            libarchive/libarchive.a -lbz2 -lz -llzma \
+            -o fuzz-native/archive-fuzzer
+
+      - name: Generate seed corpus
+        run: |
+          mkdir -p fuzz-native/corpus fuzz-native/artifacts fuzz-native/seed-work
+          python3 - <<'PY'
+          import io, pathlib, tarfile, zipfile
+          root = pathlib.Path('fuzz-native/corpus')
+          payload = b'Tarsnap targeted fuzz seed\n' * 8
+          with tarfile.open(root / 'sample.tar', 'w') as tf:
+              info = tarfile.TarInfo('seed.txt')
+              info.size = len(payload)
+              tf.addfile(info, io.BytesIO(payload))
+          with zipfile.ZipFile(root / 'sample.zip', 'w', zipfile.ZIP_DEFLATED) as zf:
+              zf.writestr('seed.txt', payload)
+          (root / 'sample.mtree').write_text('#mtree\n. type=dir\n./seed.txt type=file size=8\n')
+          PY
+          printf 'ar seed\n' > fuzz-native/seed-work/ar-seed.txt
+          ar rcs fuzz-native/corpus/sample.ar fuzz-native/seed-work/ar-seed.txt
+          printf 'iso seed\n' > fuzz-native/seed-work/iso-seed.txt
+          genisoimage -quiet -o fuzz-native/corpus/sample.iso fuzz-native/seed-work/iso-seed.txt
+
+      - name: Fuzz ${{ matrix.format }} under ASan and UBSan
+        continue-on-error: true
+        run: |
+          set +e
+          timeout 15m fuzz-native/archive-fuzzer \
+            -fork=2 \
+            -ignore_crashes=1 \
+            -ignore_ooms=1 \
+            -ignore_timeouts=1 \
+            -max_len=2097152 \
+            -rss_limit_mb=4096 \
+            -timeout=20 \
+            -artifact_prefix=fuzz-native/artifacts/ \
+            fuzz-native/corpus > fuzz-native/fuzz.log 2>&1
+          echo "$?" > fuzz-native/fuzz.exit
+          tail -200 fuzz-native/fuzz.log
+
+      - name: Upload ${{ matrix.format }} evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tarsnap-${{ matrix.format }}-fuzz-evidence
+          path: |
+            fuzz-native/artifacts/
+            fuzz-native/fuzz.log
+            fuzz-native/fuzz.exit
+          if-no-files-found: warn
+          retention-days: 7
