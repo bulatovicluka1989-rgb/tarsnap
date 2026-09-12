@@ -1,0 +1,76 @@
+name: Codex targeted compression fuzz
+
+on:
+  workflow_dispatch:
+
+jobs:
+  fuzz-compression:
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        compression: [BZIP2, COMPRESS, GZIP, XZ]
+    runs-on: ubuntu-latest
+    timeout-minutes: 23
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y autoconf automake clang libbz2-dev libext2fs-dev liblzma-dev libssl-dev ncompress zlib1g-dev
+
+      - name: Build instrumented ${{ matrix.compression }} reader
+        run: |
+          autoreconf -fi
+          CC=clang CFLAGS='-O1 -g -fno-omit-frame-pointer -fsanitize=fuzzer-no-link,address,undefined' ./configure
+          make -j2 libarchive/libarchive.a
+          clang -O1 -g -fno-omit-frame-pointer \
+            -fsanitize=fuzzer,address,undefined \
+            -DFUZZ_COMPRESSION_${{ matrix.compression }} \
+            -I. -Ilibarchive fuzz-native/archive_fuzzer.c \
+            libarchive/libarchive.a -lbz2 -lz -llzma \
+            -o fuzz-native/archive-fuzzer
+
+      - name: Generate compressed seeds
+        run: |
+          mkdir -p fuzz-native/corpus fuzz-native/artifacts fuzz-native/seed-work
+          python3 - <<'PY'
+          import bz2, gzip, lzma, pathlib
+          root = pathlib.Path('fuzz-native/corpus')
+          payload = b'Tarsnap targeted compression seed\n' * 16
+          (root / 'sample.bz2').write_bytes(bz2.compress(payload))
+          (root / 'sample.gz').write_bytes(gzip.compress(payload))
+          (root / 'sample.xz').write_bytes(lzma.compress(payload))
+          (pathlib.Path('fuzz-native/seed-work') / 'sample.txt').write_bytes(payload)
+          PY
+          compress -c fuzz-native/seed-work/sample.txt > fuzz-native/corpus/sample.Z
+
+      - name: Fuzz ${{ matrix.compression }} under ASan and UBSan
+        continue-on-error: true
+        run: |
+          set +e
+          timeout 15m fuzz-native/archive-fuzzer \
+            -fork=2 \
+            -ignore_crashes=1 \
+            -ignore_ooms=1 \
+            -ignore_timeouts=1 \
+            -max_len=2097152 \
+            -rss_limit_mb=4096 \
+            -timeout=20 \
+            -artifact_prefix=fuzz-native/artifacts/ \
+            fuzz-native/corpus > fuzz-native/fuzz.log 2>&1
+          echo "$?" > fuzz-native/fuzz.exit
+          tail -200 fuzz-native/fuzz.log
+
+      - name: Upload ${{ matrix.compression }} evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tarsnap-${{ matrix.compression }}-fuzz-evidence
+          path: |
+            fuzz-native/artifacts/
+            fuzz-native/fuzz.log
+            fuzz-native/fuzz.exit
+          if-no-files-found: warn
+          retention-days: 7
