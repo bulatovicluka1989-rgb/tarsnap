@@ -35,8 +35,6 @@ jobs:
       - name: Generate compressed seeds
         run: |
           mkdir -p fuzz-native/corpus fuzz-native/artifacts fuzz-native/seed-work
-          curl -fsSL https://raw.githubusercontent.com/libarchive/libarchive/master/contrib/oss-fuzz/corpus.zip -o /tmp/libarchive-corpus.zip
-          unzip -j /tmp/libarchive-corpus.zip -d fuzz-native/corpus
           curl -fsSL https://raw.githubusercontent.com/libarchive/libarchive/master/contrib/oss-fuzz/libarchive_filter_fuzzer.dict -o fuzz-native/libarchive.dict
           python3 - <<'PY'
           import bz2, gzip, io, lzma, pathlib, tarfile
@@ -59,10 +57,6 @@ jobs:
         run: |
           set +e
           timeout 15m fuzz-native/archive-fuzzer \
-            -fork=2 \
-            -ignore_crashes=1 \
-            -ignore_ooms=1 \
-            -ignore_timeouts=1 \
             -max_len=2097152 \
             -rss_limit_mb=4096 \
             -timeout=20 \
