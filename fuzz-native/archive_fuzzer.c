@@ -30,7 +30,7 @@ LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 #endif
 #if defined(FUZZ_COMPRESSION_BZIP2) || defined(FUZZ_COMPRESSION_COMPRESS) || \
     defined(FUZZ_COMPRESSION_GZIP) || defined(FUZZ_COMPRESSION_XZ)
-	archive_read_support_format_raw(a);
+	archive_read_support_format_tar(a);
 #elif defined(FUZZ_FORMAT_AR)
 	archive_read_support_format_ar(a);
 #elif defined(FUZZ_FORMAT_CPIO)

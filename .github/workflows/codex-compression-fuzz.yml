@@ -39,15 +39,20 @@ jobs:
           unzip -j /tmp/libarchive-corpus.zip -d fuzz-native/corpus
           curl -fsSL https://raw.githubusercontent.com/libarchive/libarchive/master/contrib/oss-fuzz/libarchive_filter_fuzzer.dict -o fuzz-native/libarchive.dict
           python3 - <<'PY'
-          import bz2, gzip, lzma, pathlib
+          import bz2, gzip, io, lzma, pathlib, tarfile
           root = pathlib.Path('fuzz-native/corpus')
           payload = b'Tarsnap targeted compression seed\n' * 16
-          (root / 'sample.bz2').write_bytes(bz2.compress(payload))
-          (root / 'sample.gz').write_bytes(gzip.compress(payload))
-          (root / 'sample.xz').write_bytes(lzma.compress(payload))
-          (pathlib.Path('fuzz-native/seed-work') / 'sample.txt').write_bytes(payload)
+          tar_path = pathlib.Path('fuzz-native/seed-work/sample.tar')
+          with tarfile.open(tar_path, 'w') as tf:
+              info = tarfile.TarInfo('seed.txt')
+              info.size = len(payload)
+              tf.addfile(info, io.BytesIO(payload))
+          tar_data = tar_path.read_bytes()
+          (root / 'sample.tar.bz2').write_bytes(bz2.compress(tar_data))
+          (root / 'sample.tar.gz').write_bytes(gzip.compress(tar_data))
+          (root / 'sample.tar.xz').write_bytes(lzma.compress(tar_data))
           PY
-          compress -c fuzz-native/seed-work/sample.txt > fuzz-native/corpus/sample.Z
+          compress -c fuzz-native/seed-work/sample.tar > fuzz-native/corpus/sample.tar.Z
 
       - name: Fuzz ${{ matrix.compression }} under ASan and UBSan
         continue-on-error: true
