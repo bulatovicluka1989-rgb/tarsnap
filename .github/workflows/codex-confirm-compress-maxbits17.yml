@@ -19,6 +19,7 @@ jobs:
         run: |
           autoreconf -fi
           CC=clang CFLAGS='-O1 -g -fno-omit-frame-pointer -fsanitize=fuzzer-no-link,address,undefined' ./configure
+          make apisupport-config.h cpusupport-config.h
           make -j2 tarsnap libarchive/libarchive.a
           clang -O1 -g -fno-omit-frame-pointer \
             -fsanitize=fuzzer,address,undefined \
