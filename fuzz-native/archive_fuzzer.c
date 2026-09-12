@@ -17,7 +17,11 @@ LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 	a = archive_read_new();
 	if (a == NULL)
 		return (0);
-#if defined(FUZZ_COMPRESSION_BZIP2)
+#if defined(FUZZ_FORMAT_AR) || defined(FUZZ_FORMAT_CPIO) || \
+    defined(FUZZ_FORMAT_ISO9660) || defined(FUZZ_FORMAT_MTREE) || \
+    defined(FUZZ_FORMAT_TAR) || defined(FUZZ_FORMAT_ZIP)
+	archive_read_support_compression_none(a);
+#elif defined(FUZZ_COMPRESSION_BZIP2)
 	archive_read_support_compression_bzip2(a);
 #elif defined(FUZZ_COMPRESSION_COMPRESS)
 	archive_read_support_compression_compress(a);
