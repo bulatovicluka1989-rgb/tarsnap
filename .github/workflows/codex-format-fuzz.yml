@@ -33,8 +33,14 @@ jobs:
             -o fuzz-native/archive-fuzzer
 
       - name: Generate seed corpus
+        env:
+          FUZZ_FORMAT: ${{ matrix.format }}
         run: |
           mkdir -p fuzz-native/corpus fuzz-native/artifacts fuzz-native/seed-work
+          curl -fsSL https://raw.githubusercontent.com/libarchive/libarchive/master/contrib/oss-fuzz/corpus.zip -o /tmp/libarchive-corpus.zip
+          unzip -j /tmp/libarchive-corpus.zip -d fuzz-native/corpus
+          format_name="$(printf '%s' "$FUZZ_FORMAT" | tr '[:upper:]' '[:lower:]')"
+          curl -fsSL "https://raw.githubusercontent.com/libarchive/libarchive/master/contrib/oss-fuzz/libarchive_${format_name}_fuzzer.dict" -o fuzz-native/libarchive.dict
           python3 - <<'PY'
           import io, pathlib, tarfile, zipfile
           root = pathlib.Path('fuzz-native/corpus')
@@ -64,6 +70,7 @@ jobs:
             -max_len=2097152 \
             -rss_limit_mb=4096 \
             -timeout=20 \
+            -dict=fuzz-native/libarchive.dict \
             -artifact_prefix=fuzz-native/artifacts/ \
             fuzz-native/corpus > fuzz-native/fuzz.log 2>&1
           echo "$?" > fuzz-native/fuzz.exit
