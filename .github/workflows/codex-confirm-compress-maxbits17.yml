@@ -19,7 +19,7 @@ jobs:
         run: |
           autoreconf -fi
           CC=clang CFLAGS='-O1 -g -fno-omit-frame-pointer -fsanitize=fuzzer-no-link,address,undefined' ./configure
-          make -j2 libarchive/libarchive.a
+          make -j2 tarsnap libarchive/libarchive.a
           clang -O1 -g -fno-omit-frame-pointer \
             -fsanitize=fuzzer,address,undefined \
             -DFUZZ_COMPRESSION_COMPRESS \
@@ -37,6 +37,12 @@ jobs:
           Path('fuzz-native/confirm/maxbits17-min.Z').write_bytes(data)
           PY
           set +e
+          ASAN_OPTIONS='abort_on_error=1:halt_on_error=1:detect_leaks=0:symbolize=1' \
+          UBSAN_OPTIONS='halt_on_error=0:print_stacktrace=1' \
+            ./tarsnap --no-default-config -c --dry-run \
+            @fuzz-native/confirm/maxbits17-min.Z \
+            > fuzz-native/confirm/tarsnap-sanitizer.log 2>&1
+          echo "$?" > fuzz-native/confirm/tarsnap-sanitizer.exit
           ASAN_OPTIONS='abort_on_error=1:halt_on_error=1:detect_leaks=0:symbolize=1' \
           UBSAN_OPTIONS='halt_on_error=0:print_stacktrace=1' \
             fuzz-native/archive-fuzzer fuzz-native/confirm/maxbits17-min.Z \
