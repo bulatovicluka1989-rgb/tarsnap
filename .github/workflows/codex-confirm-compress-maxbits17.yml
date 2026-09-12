@@ -1,0 +1,54 @@
+name: Codex confirm compress maxbits 17
+
+on:
+  workflow_dispatch:
+
+jobs:
+  confirm:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y autoconf automake clang libbz2-dev libext2fs-dev liblzma-dev libssl-dev zlib1g-dev
+
+      - name: Build instrumented compress reader
+        run: |
+          autoreconf -fi
+          CC=clang CFLAGS='-O1 -g -fno-omit-frame-pointer -fsanitize=fuzzer-no-link,address,undefined' ./configure
+          make -j2 libarchive/libarchive.a
+          clang -O1 -g -fno-omit-frame-pointer \
+            -fsanitize=fuzzer,address,undefined \
+            -DFUZZ_COMPRESSION_COMPRESS \
+            -I. -Ilibarchive fuzz-native/archive_fuzzer.c \
+            libarchive/libarchive.a -lbz2 -lz -llzma \
+            -o fuzz-native/archive-fuzzer
+
+      - name: Reproduce maxbits 17 failure
+        continue-on-error: true
+        run: |
+          mkdir -p fuzz-native/confirm
+          python3 - <<'PY'
+          from pathlib import Path
+          data = bytes.fromhex('1f9d11') + bytes(122670)
+          Path('fuzz-native/confirm/maxbits17-min.Z').write_bytes(data)
+          PY
+          set +e
+          ASAN_OPTIONS='abort_on_error=1:halt_on_error=1:detect_leaks=0:symbolize=1' \
+          UBSAN_OPTIONS='halt_on_error=0:print_stacktrace=1' \
+            fuzz-native/archive-fuzzer fuzz-native/confirm/maxbits17-min.Z \
+            > fuzz-native/confirm/sanitizer.log 2>&1
+          echo "$?" > fuzz-native/confirm/sanitizer.exit
+          cat fuzz-native/confirm/sanitizer.log
+
+      - name: Upload confirmation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tarsnap-compress-maxbits17-confirmation
+          path: fuzz-native/confirm/
+          if-no-files-found: error
+          retention-days: 7
