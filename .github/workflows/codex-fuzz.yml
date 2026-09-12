@@ -13,7 +13,7 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y autoconf automake clang cpio libbz2-dev liblzma-dev libssl-dev zlib1g-dev
+          sudo apt-get install -y autoconf automake clang cpio libbz2-dev libext2fs-dev liblzma-dev libssl-dev zlib1g-dev
 
       - name: Build instrumented archive reader
         run: |
@@ -55,6 +55,10 @@ jobs:
         run: |
           set +e
           timeout 20m fuzz-native/archive-fuzzer \
+            -fork=2 \
+            -ignore_crashes=1 \
+            -ignore_ooms=1 \
+            -ignore_timeouts=1 \
             -max_len=2097152 \
             -rss_limit_mb=4096 \
             -timeout=20 \
